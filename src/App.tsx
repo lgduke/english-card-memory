@@ -14,9 +14,10 @@ function App() {
   const [isFlipped, setIsFlipped] = useState(false);
   const [mode, setMode] = useState<'eng-to-kor' | 'kor-to-eng'>('eng-to-kor');
   const [usage, setUsage] = useState<string>('');
+  const [fileName, setFileName] = useState<string>('Should-memory.csv');
 
   useEffect(() => {
-    Papa.parse('/Should-memory.csv', {
+    Papa.parse(`/${fileName}`, {
       download: true,
       header: true,
       skipEmptyLines: true,
@@ -36,7 +37,7 @@ function App() {
         }
       }
     });
-  }, []);
+  }, [fileName]);
 
   const showNextWord = () => {
     if (words.length > 0) {
@@ -108,6 +109,18 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
+        <div className="file-selector" style={{ marginBottom: '20px' }}>
+          <label htmlFor="file-select" style={{ marginRight: '10px' }}>Choose Data File: </label>
+          <select 
+            id="file-select" 
+            value={fileName} 
+            onChange={(e) => setFileName(e.target.value)}
+            style={{ padding: '5px', fontSize: '16px' }}
+          >
+            <option value="Should-memory.csv">Should-memory.csv</option>
+            <option value="Should-memory-V2.csv">Should-memory-V2.csv</option>
+          </select>
+        </div>
         <h1>English Card Memory Program</h1>
         {words.length > 0 && currentWord ? (
           <div className="flashcard-container">
