@@ -8,27 +8,25 @@ This guide will help you use the English Card Memory Program to improve your voc
 2.  **Running the application:** The application now has two parts: a frontend and a backend. Both must be running. See the "For Developers" section for instructions.
 3.  **Accessing the application:** Open your web browser and navigate to the URL for the frontend (usually `http://localhost:3000`).
 
-## How to Play
+1.  **Select Data File:** Use the dropdown menu at the top to choose between different word lists:
+    *   `Should-memory.csv`: The primary English word list.
+    *   `Should-memory-V2.csv`: An updated version of the English word list.
+    *   `Should-memory-spanish.csv`: A Spanish-English word list.
+2.  **Flashcard Interaction:**
+    *   The front of the card shows a word or phrase.
+    *   Click **"Show Answer"** to see the translation.
+    *   Click **"Next Word"** to get a new random word from the selected list.
+3.  **Find Usage:**
+    *   After revealing the answer, click **"Find Usage"** to see an example sentence or definition (Note: currently optimized for English words).
+4.  **Switch Mode:**
+    *   Use the **"Switch to..."** button to toggle between learning directions (e.g., English to Korean or Korean to English).
 
-1.  **Start the game:** Click the "Start" button to begin the quiz.
-2.  **Guess the word/meaning:**
-    *   You will be shown either a word or its meaning.
-    *   Type your answer in the input field.
-3.  **Submit your answer:** Click the "Submit" button to check your answer.
-4.  **View the results:**
-    *   You will see feedback on whether your answer was correct or incorrect.
-    *   The correct answer will be displayed.
-    *   The memo for the word will also be shown.
-5.  **Find Real-time Usage:** Click the "Find Usage" button to see a real-world example of the word used in a sentence, fetched from the internet.
-6.  **Continue to the next word:** Click the "Next Word" button to move on to the next flashcard.
-7.  **Play again:** When you have completed all the words, you can click the "Play Again" button to restart the quiz.
+### CSV Data Format
 
-## Features
-
-*   **Flashcard Quiz:** Test your knowledge of English words and their meanings.
-*   **Real-time Usage Examples:** Click "Find Usage" to get a live example of the word in a sentence from the web.
-*   **Randomized Questions:** The quiz randomly selects words and alternates between asking for the word and the meaning.
-*   **CSV Data:** The word list is loaded from a `Should-memory.csv` file, which can be easily updated.
+The application expects CSV files in the `public/` folder with the following headers:
+- `내가 모은 영어 문장`: The word or phrase to be tested (Front of card).
+- `한글 뜻`: The translation or meaning (Back of card).
+- `메모`: Additional notes or context.
 
 ## For Developers
 

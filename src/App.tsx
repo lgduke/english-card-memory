@@ -63,7 +63,9 @@ function App() {
     setUsage('Searching for usage examples...');
     
     try {
-      const response = await fetch(`/api/usage?word=${encodeURIComponent(wordOrPhrase)}`);
+      const isSpanish = fileName.toLowerCase().includes('spanish');
+      const langParam = isSpanish ? '&lang=es' : '&lang=en';
+      const response = await fetch(`/api/usage?word=${encodeURIComponent(wordOrPhrase)}${langParam}`);
       if (!response.ok) {
         // Try to get a more specific error message from the server's JSON response
         const errorData = await response.json().catch(() => null); // Catch cases where body is not JSON
