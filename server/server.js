@@ -49,7 +49,9 @@ function cleanWikitext(text) {
 
 async function fetchWordData(word) {
   try {
-    const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+    const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, {
+      headers: { 'User-Agent': 'GeminiCardMemoryApp/1.0 (https://github.com/yourusername/gemini-memory-english; mailto:your@email.com)' }
+    });
     const data = response.data;
     let usage = null;
     let definition = null;
@@ -92,6 +94,9 @@ async function fetchSpanishWordData(word) {
             titles: word,
             format: 'json',
             redirects: true
+        },
+        headers: {
+            'User-Agent': 'GeminiCardMemoryApp/1.0 (https://github.com/yourusername/gemini-memory-english; mailto:your@email.com)'
         }
     });
 
