@@ -119,6 +119,7 @@ function App() {
           >
             <option value="Should-memory.csv">Should-memory.csv</option>
             <option value="Should-memory-V2.csv">Should-memory-V2.csv</option>
+            <option value="Should-memory-spanish.csv">Should-memory-spanish.csv</option>
           </select>
         </div>
         <h1>English Card Memory Program</h1>
