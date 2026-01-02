@@ -13,6 +13,40 @@ const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'from', 'this', 'that', 
 
 const STOPWORDS_ES = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'e', 'o', 'u', 'pero', 'si', 'no', 'que', 'en', 'de', 'del', 'al', 'con', 'por', 'para', 'a', 'su', 'sus', 'mi', 'mis', 'tu', 'tus', 'es', 'son', 'fue', 'fueron', 'ser', 'estar']);
 
+function cleanWikitext(text) {
+  if (!text) return null;
+  let cleaned = text;
+
+  // Remove HTML tags
+  cleaned = cleaned.replace(/<[^>]+>/g, '');
+
+  // Links: [[target|text]] -> text, [[text]] -> text
+  // We handle this iteratively to support some nesting if any, but mostly simple links
+  cleaned = cleaned.replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, '$1');
+
+  // Bold/Italic
+  cleaned = cleaned.replace(/'''?/g, '');
+
+  // Remove specific metadata templates or prefixes often found in definitions
+  cleaned = cleaned.replace(/\{\{impropia\|([^}]+)\}\}/g, '$1');
+  cleaned = cleaned.replace(/\{\{plm\|([^}]+)\}\}/g, '$1');
+
+  // Simple template removal: {{name|val1|...}} -> val1
+  // We repeat this a few times to handle basic nesting
+  let prev;
+  let loops = 0;
+  do {
+      prev = cleaned;
+      // Replace {{template|content...}} with content
+      cleaned = cleaned.replace(/\{\{[^|{}]+\|([^|{}]*)(?:\|[^{}]*)?\}\}/g, '$1');
+      // Replace {{template}} (no content) with empty string
+      cleaned = cleaned.replace(/\{\{[^|{}]+\}\}/g, '');
+      loops++;
+  } while (cleaned !== prev && loops < 5);
+
+  return cleaned.trim();
+}
+
 async function fetchWordData(word) {
   try {
     const response = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
@@ -70,18 +104,61 @@ async function fetchSpanishWordData(word) {
     const content = pages[pageId].revisions?.[0]?.['*'];
     if (!content) return { found: false };
 
-    // Extract example
-    // Look for {{ejemplo|...}}
-    const exampleMatch = content.match(/\{\{ejemplo\|([^}|]+)(?:\|[^}]*)?\}\}/i);
     let usage = null;
-    if (exampleMatch) {
-        usage = exampleMatch[1].trim();
-        if (usage.startsWith('1=')) {
-            usage = usage.substring(2).trim();
+    let definition = null;
+
+    // 1. Try to extract usage example {{ejemplo|...}}
+    // We capture the content inside {{ejemplo|...}} accounting for newlines
+    const exampleRegex = /\{\{ejemplo\|([\s\S]*?)\}\}/g;
+    let match;
+    while ((match = exampleRegex.exec(content)) !== null) {
+        let rawExample = match[1];
+        
+        // Handle parameters with pipes. 
+        // We want the first parameter. 
+        // But we must respect [[link|text]].
+        // We can crudely split by '|' and check if we are inside brackets.
+        
+        let parts = [];
+        let currentPart = '';
+        let bracketDepth = 0;
+        
+        for (let char of rawExample) {
+            if (char === '[' || char === '{') bracketDepth++;
+            if (char === ']' || char === '}') bracketDepth--;
+            
+            if (char === '|' && bracketDepth === 0) {
+                parts.push(currentPart);
+                currentPart = '';
+            } else {
+                currentPart += char;
+            }
+        }
+        parts.push(currentPart);
+
+        // The example text is the first part (or the one starting with 1=)
+        let candidate = parts[0].trim();
+        if (candidate.startsWith('1=')) {
+            candidate = candidate.substring(2).trim();
+        }
+
+        // Clean it
+        let cleaned = cleanWikitext(candidate);
+        if (cleaned && cleaned.length > 5) { // Arbitrary min length
+            usage = cleaned;
+            break; // Found one
         }
     }
 
-    return { found: true, usage, definition: null };
+    // 2. If no usage, extract definition (;1: ...)
+    if (!usage) {
+        const defMatch = content.match(/^;\d+:\s*([\s\S]*?)$/m);
+        if (defMatch) {
+            definition = cleanWikitext(defMatch[1]);
+        }
+    }
+
+    return { found: true, usage, definition };
   } catch (error) {
     console.error("Error fetching Spanish data:", error);
     return { found: false, usage: null };
@@ -129,14 +206,15 @@ app.get('/api/usage', async (req, res) => {
       }
     }
 
-    // 3. Fallback to definition of the whole phrase (English only mostly as we didn't implement def parsing for ES)
+    // 3. Fallback to definition of the whole phrase
     if (result.found && result.definition) {
       console.log(`Found definition only for "${cleanWord}"`);
+      // Label it clearly as definition if usage was requested
       return res.json({ usage: `(Definition): ${result.definition}` });
     }
 
-    // 4. Fallback to definition of sub-words (English only)
-    if (cleanWord.includes(' ') && lang !== 'es') {
+    // 4. Fallback to definition of sub-words
+    if (cleanWord.includes(' ')) {
       const words = cleanWord.split(/\s+/)
         .map(w => w.replace(/[.,!?;:~]$/, ''))
         .filter(w => w.length > 3 && !stopWords.has(w.toLowerCase()))
