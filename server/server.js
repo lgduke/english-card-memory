@@ -17,30 +17,48 @@ function cleanWikitext(text) {
   if (!text) return null;
   let cleaned = text;
 
+  // Pre-process specific templates to make them readable
+  // {{comparativo|irreg=s|malo}} -> Comparativo de malo
+  cleaned = cleaned.replace(/\{\{comparativo\|(?:[^}]*\|)?([^}=]+)\}\}/g, 'Comparativo de $1');
+  cleaned = cleaned.replace(/\{\{superlativo\|(?:[^}]*\|)?([^}=]+)\}\}/g, 'Superlativo de $1');
+  
+  // {{plm|word}} or {{l+|...|word}} -> word
+  cleaned = cleaned.replace(/\{\{(?:plm|l\+|l)\|[^|]*\|([^}|]+)(?:\|[^}]*)?\}\}/g, '$1');
+  cleaned = cleaned.replace(/\{\{(?:plm|l\+|l)\|([^}|]+)\}\}/g, '$1');
+
   // Remove HTML tags
   cleaned = cleaned.replace(/<[^>]+>/g, '');
 
   // Links: [[target|text]] -> text, [[text]] -> text
-  // We handle this iteratively to support some nesting if any, but mostly simple links
   cleaned = cleaned.replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, '$1');
 
   // Bold/Italic
   cleaned = cleaned.replace(/'''?/g, '');
 
-  // Remove specific metadata templates or prefixes often found in definitions
+  // Remove specific metadata templates
   cleaned = cleaned.replace(/\{\{impropia\|([^}]+)\}\}/g, '$1');
-  cleaned = cleaned.replace(/\{\{plm\|([^}]+)\}\}/g, '$1');
-
-  // Simple template removal: {{name|val1|...}} -> val1
-  // We repeat this a few times to handle basic nesting
+  
+  // Generic Template Removal:
+  // Try to keep the last unnamed parameter if it looks like a word, otherwise just strip.
+  // This is a heuristic.
+  // Loop to handle nesting
   let prev;
   let loops = 0;
   do {
       prev = cleaned;
-      // Replace {{template|content...}} with content
-      cleaned = cleaned.replace(/\{\{[^|{}]+\|([^|{}]*)(?:\|[^{}]*)?\}\}/g, '$1');
-      // Replace {{template}} (no content) with empty string
-      cleaned = cleaned.replace(/\{\{[^|{}]+\}\}/g, '');
+      // Find innermost {{...}}
+      cleaned = cleaned.replace(/\{\{([^{}]+)\}\}/g, (match, content) => {
+          // Split by pipe
+          const parts = content.split('|');
+          // Filter out named params (containing =) and the template name (first part)
+          const args = parts.slice(1).filter(p => !p.includes('='));
+          
+          if (args.length > 0) {
+              // Return the last arg usually (e.g. {{template|...|val}})
+              return args[args.length - 1];
+          }
+          return ''; // Remove if no good content
+      });
       loops++;
   } while (cleaned !== prev && loops < 5);
 
@@ -113,17 +131,12 @@ async function fetchSpanishWordData(word) {
     let definition = null;
 
     // 1. Try to extract usage example {{ejemplo|...}}
-    // We capture the content inside {{ejemplo|...}} accounting for newlines
     const exampleRegex = /\{\{ejemplo\|([\s\S]*?)\}\}/g;
     let match;
     while ((match = exampleRegex.exec(content)) !== null) {
         let rawExample = match[1];
         
-        // Handle parameters with pipes. 
-        // We want the first parameter. 
-        // But we must respect [[link|text]].
-        // We can crudely split by '|' and check if we are inside brackets.
-        
+        // Manual pipe parsing to respect brackets
         let parts = [];
         let currentPart = '';
         let bracketDepth = 0;
@@ -141,25 +154,33 @@ async function fetchSpanishWordData(word) {
         }
         parts.push(currentPart);
 
-        // The example text is the first part (or the one starting with 1=)
         let candidate = parts[0].trim();
         if (candidate.startsWith('1=')) {
             candidate = candidate.substring(2).trim();
         }
 
-        // Clean it
         let cleaned = cleanWikitext(candidate);
-        if (cleaned && cleaned.length > 5) { // Arbitrary min length
+        if (cleaned && cleaned.length > 5) {
             usage = cleaned;
-            break; // Found one
+            break; 
         }
     }
 
     // 2. If no usage, extract definition (;1: ...)
+    // Iterate over all definitions, not just the first one
     if (!usage) {
-        const defMatch = content.match(/^;\d+:\s*([\s\S]*?)$/m);
-        if (defMatch) {
-            definition = cleanWikitext(defMatch[1]);
+        const defRegex = /^;\d+:\s*([\s\S]*?)$/gm;
+        let defMatch;
+        while ((defMatch = defRegex.exec(content)) !== null) {
+            const rawDef = defMatch[1];
+            // Split by newline to avoid capturing subsequent lines if the regex was too greedy (though $ usually prevents this in m mode, but safe to be sure)
+            const firstLine = rawDef.split('\n')[0];
+            
+            const cleanedDef = cleanWikitext(firstLine);
+            if (cleanedDef && cleanedDef.length > 3) { // Min length check
+                definition = cleanedDef;
+                break; // Found a valid definition
+            }
         }
     }
 
@@ -189,14 +210,20 @@ app.get('/api/usage', async (req, res) => {
     // 1. Try exact match
     const result = await fetchFunc(cleanWord);
 
-    if (result.found && result.usage) {
-      console.log(`Found usage for "${cleanWord}"`);
-      return res.json({ usage: result.usage });
+    if (result.found && (result.usage || result.definition)) {
+       // Prefer usage, fallback to definition with label
+       if (result.usage) {
+         console.log(`Found usage for "${cleanWord}"`);
+         return res.json({ usage: result.usage });
+       } else {
+         console.log(`Found definition only for "${cleanWord}"`);
+         return res.json({ usage: `(Definition): ${result.definition}` });
+       }
     }
 
-    // 2. If no usage found, and input has spaces, try splitting
+    // 2. If no usage/def found, and input has spaces, try splitting
     if (cleanWord.includes(' ')) {
-      console.log(`No usage for phrase "${cleanWord}". Trying split words...`);
+      console.log(`No exact match for phrase "${cleanWord}". Trying split words...`);
       const words = cleanWord.split(/\s+/)
         .map(w => w.replace(/[.,!?;:~]$/, ''))
         .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()))
@@ -204,32 +231,14 @@ app.get('/api/usage', async (req, res) => {
 
       for (const word of words) {
         const subResult = await fetchFunc(word);
-        if (subResult.found && subResult.usage) {
-          console.log(`Found fallback usage for word "${word}"`);
-          return res.json({ usage: `(Example for '${word}'): ${subResult.usage}` });
-        }
-      }
-    }
-
-    // 3. Fallback to definition of the whole phrase
-    if (result.found && result.definition) {
-      console.log(`Found definition only for "${cleanWord}"`);
-      // Label it clearly as definition if usage was requested
-      return res.json({ usage: `(Definition): ${result.definition}` });
-    }
-
-    // 4. Fallback to definition of sub-words
-    if (cleanWord.includes(' ')) {
-      const words = cleanWord.split(/\s+/)
-        .map(w => w.replace(/[.,!?;:~]$/, ''))
-        .filter(w => w.length > 3 && !stopWords.has(w.toLowerCase()))
-        .sort((a, b) => b.length - a.length);
-
-      for (const word of words) {
-        const subResult = await fetchFunc(word);
-        if (subResult.found && subResult.definition) {
-          console.log(`Found fallback definition for word "${word}"`);
-          return res.json({ usage: `(Definition for '${word}'): ${subResult.definition}` });
+        if (subResult.found && (subResult.usage || subResult.definition)) {
+             if (subResult.usage) {
+                console.log(`Found fallback usage for word "${word}"`);
+                return res.json({ usage: `(Example for '${word}'): ${subResult.usage}` });
+             } else {
+                console.log(`Found fallback definition for word "${word}"`);
+                return res.json({ usage: `(Definition for '${word}'): ${subResult.definition}` });
+             }
         }
       }
     }
